@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
+from sklearn.neighbors import NearestNeighbors
+from itertools import product
 
 def load_pkl(file_path):
     return pickle.load(open(file_path, "rb"))
@@ -340,7 +342,7 @@ def get_inhabitant_columns(data):
 
 
 def get_housing_columns(data):
-    return [col for col in data.columns if ("WON_" in col and not "WONER" in col)
+    return [col for col in data.columns if ("WON" in col and not "WONER" in col)
             or ("HH" in col)]
 
 
@@ -348,7 +350,7 @@ def forward_and_backward_fill(data, sort_by=None):
     return data.sort_values(sort_by).fillna(method="ffill").fillna(method="bfill")
 
 
-def fill_missing_facility_values(data, loc_column="C28992R100", time_column="YEAR"):
+def fill_missing_facility_values(data, loc_column="C28992R100", time_column="YEAR", **kwargs):
     """ Fill the missing and secret values in the facilities columns.
 
     Performs the following steps:
@@ -368,6 +370,8 @@ def fill_missing_facility_values(data, loc_column="C28992R100", time_column="YEA
         a time column specifying the year of the data, since CBS produces separate datasets
         for each year (starting from 2015). Using smaller time units may lead to unexpected
         behavior (e.g., long computation times and memory issues).
+    **kwargs: any,
+        Arguments passed to `fill_missing_values_with_knn()`.
 
     Returns
     -------
@@ -380,17 +384,44 @@ def fill_missing_facility_values(data, loc_column="C28992R100", time_column="YEA
     """
     facility_columns = get_facility_columns(data)
     facility_data = data[[loc_column, time_column] + facility_columns]
+    facility_data = add_location_coordinates(facility_data, x_column_name="x_coord", y_column_name="y_coord")
 
     # 1. convert confidential values to NaN as they do not imply anything about facilities
     facility_data = confidential_to_value(facility_data, [-99997, -99997.0], value=np.nan)
 
-    # 2. forward and backward fill
-    filled_data = forward_backward_fill_per_location(facility_data,
+    # 2. Perform kNN on the 2015 entries, since these are the only ones available at all
+    print("Imputing missing values with kNN...")
+    dist_cols = [col for col in facility_columns if 'AF' in col]
+    mean_cols = [col for col in facility_columns if 'AV' in col]
+
+    # temporarily split the data to make the algorithm more efficient
+    old_shape = facility_data.shape
+    df2015 = facility_data[facility_data[time_column] == 2015].copy()
+    df_rest = facility_data[facility_data[time_column] != 2015].copy()
+
+    df2015 = fill_missing_values_with_knn(
+        df2015,
+        dist_cols,
+        fill_method="min_distance_plus_value",
+        **kwargs
+    )
+
+    df2015 = fill_missing_values_with_knn(
+        df2015,
+        mean_cols,
+        fill_method="mean",
+        **kwargs
+    )
+
+    # put together again
+    merged_data = pd.concat([df_rest, df2015], axis=0, ignore_index=True)
+    assert merged_data.shape == old_shape, \
+        "Old and new shapes do not match. Old: {}. New: {}".format(old_shape, merged_data.shape)
+
+    # 3. forward and backward fill
+    filled_data = forward_backward_fill_per_location(merged_data,
                                                      loc_column=loc_column,
                                                      sort_column=time_column)
-
-    # 3. fill remaining with nearest neighbor approach based on distance of locations
-    # todo..
 
     # put filled data back in the original data
     return replace_shuffled_columns(data, filled_data, loc_column=loc_column,
@@ -427,7 +458,6 @@ def fill_missing_housing_values(data, loc_column="C28992R100", time_column="YEAR
     mean_columns = ["GEM_HH_GR", "WOZWONING", "G_ELEK_WON", "G_GAS_WON"]
     housing_data = data[[loc_column, time_column] + housing_columns]
 
-    print("Replacing confidential values...")
     # 1. confidential values to NaNs for specific columns
     housing_data = confidential_to_value(housing_data, [-99997, -99997.0], value=np.nan,
                                          columns=mean_columns)
@@ -440,7 +470,6 @@ def fill_missing_housing_values(data, loc_column="C28992R100", time_column="YEAR
     # 3. forward and backward fill per location
     housing_data = forward_backward_fill_per_location(housing_data)
 
-    print("Filling the remaining values with zeros or median values.")
     # 4. fill specific columns with median values
     for col in mean_columns:
         median_of_col = housing_data[col].median()
@@ -483,7 +512,7 @@ def fill_missing_inhabitant_values(data, loc_column="C28992R100", time_column="Y
     inhabitant_data = data[[loc_column, time_column] + inhabitant_columns]
 
     # 1. set confidential values to zero
-    confidential_to_value(inhabitant_data, [-99997, -99997.0], value=np.nan)
+    inhabitant_data = confidential_to_value(inhabitant_data, [-99997, -99997.0], value=np.nan)
 
     # 2. forward and backward fill
     inhabitant_data = forward_backward_fill_per_location(inhabitant_data)
@@ -511,3 +540,166 @@ def forward_backward_fill_per_location(data, loc_column="C28992R100", sort_colum
                        .apply(lambda x: forward_and_backward_fill(x, sort_by=sort_column))
                        .reset_index(drop=True))
     return filled_data
+
+
+def split_data_for_knn(data, y_col, features):
+    """ Split the data based on missingness in a column.
+
+    Parameters
+    ----------
+    data: pd.DataFrame,
+        The data to split.
+    y_col: str,
+        The target column.
+    features: array-like or str
+        The columns to use as features in x_train and x_test.
+
+    Returns
+    -------
+    x_train: pd.DataFrame,
+        A slice of the dataframe where the columns are in `features` and the records are those
+        where y_col is not missing.
+    y_train: pd.DataFrame,
+        The values in y_col corresponding to the records in x_train.
+    x_test: pd.DataFrame,
+        A slice of the dataframe where the columns are in `features` and the records are those
+        where y_col is missing.
+    """
+    x_all = data.loc[:, features].copy()
+    y_all = data.loc[:, y_col].copy()
+
+    y_train = y_all[~y_all.isnull()].copy()
+    x_train = x_all[~y_all.isnull()].copy()
+    x_test = x_all[y_all.isnull()].copy()
+
+    return x_train, y_train, x_test
+
+
+def get_k_nearest_neighbor_values(x_train, y_train, x_test, K=8, n_jobs=-1):
+    """ Get the K nearest neighbor values.
+
+    Parameters
+    ----------
+    x_train: pd.DataFrame,
+        The train features.
+    y_train: pd.Series,
+        The train labels / target values.
+    x_test: pd.DataFrame,
+        The data to predict.
+    K: int, optional (default: 8)
+        The number of neigbors to find.
+    n_job: int, optional (default: -1)
+        The number of CPU cores to use in the kNN algorithm. A value of -1 uses all available cores.
+
+    Returns
+    -------
+    distances: np.array
+        The distances to the K neighbors for every record in x_test. Shape: (len(x_test), K).
+    predictions: np.array
+        The values of the target of the K neighbors for every record in x_test. Shape (len(x_test), K).
+    """
+    # fit the data
+    knn = NearestNeighbors(n_neighbors=K, n_jobs=n_jobs)
+    knn.fit(x_train)
+    # find nearest neighbors
+    distances, indices = knn.kneighbors(x_test, return_distance=True)
+    # get the predictions of the nearest neighbors
+    predictions = np.concatenate(
+        [y_train.values[indices[:, k]].reshape(-1, 1) for k in range(K)], axis=1)
+
+    return distances, predictions
+
+
+def get_minimum_total_distance_to_facility(predictions, distances, distance_factor=1.3*1e-3,
+                                           *args, **kwargs):
+    """ Based on nearest neighbor values and distances, retrieve the distance to the closest facility. """
+    return np.min(distances * distance_factor + predictions, axis=1)
+
+
+def get_mean_value_among_neighbors(predictions, *args, **kwargs):
+    """ Calculate mean value of neighbors. """
+    return np.mean(predictions, axis=1)
+
+
+def fill_missing_values_with_knn(data, columns_to_fill, K=8, coordinate_cols=["x_coord", "y_coord"],
+                                 fill_method="min_distance_plus_value", distance_factor=1.3*1e-3,
+                                 index_col="C28992R100"):
+    """ Fill the missing values of columns using the k-Neaest Neighbor algorithm.
+
+    Parameters
+    ----------
+    data: pd.DataFrame,
+        The data in which columns should be filled.
+    columns_to_fill: array-like,
+        The columns in the data to fill using kNN.
+    K: int, optional (default: 8)
+        The number of neighbors to use in the kNN algorithm.
+    coordinate_cols: array-like, optional (default: ['x_coord', 'y_coord'])
+        The columns to use in calculating the distance. Intended use is based on two columns
+        that define the x and y coordinates in ESRI 28992, so that the L2 distance equals the
+        distance 'as the crow flies' between two points.
+    fill_method: str, one of ['distance_plus_value', 'mean'], optional,
+        If 'min_distance_plus_value', the fill values are calculated as the minimum of
+        `distance * distance_factor + value_of_neighbor` over the K neighbors. If 'mean', the
+        fill values are the simple average of the values of the K neighbors.
+    distance_factor: float,
+        The value to multiply the distances with in case `fill_method='min_distance_plus_value'
+        so that the distance and value correspond in unit. E.g., if coordinates in meters are
+        used to calculate the distance, but the value column is in kilometers, you can specify
+        `distance_factor = 1e-3` to compensate. In addition, to account for the fact that the
+        distance is 'as the crow flies', a factor somewhat bigger than 1 could be used to estimate
+        a distance over the road. This combined, leads to the default value of `1.3*1e-3`. Note
+        that this argument is ignored when the fill_method is not 'min_distance_plus_value'.
+
+    Returns
+    -------
+    data: pd.DataFrame,
+        The filled data.
+    """
+    def has_missing(series):
+        return (series.isnull().sum() > 0)
+
+    if fill_method == "min_distance_plus_value":
+        func = get_minimum_total_distance_to_facility
+    elif fill_method == "mean":
+        func = get_mean_value_among_neighbors
+
+    if isinstance(columns_to_fill, str):
+        columns_to_fill = [columns_to_fill]
+
+    data = data.set_index(index_col)
+    for target_column in columns_to_fill:
+        if has_missing(data[target_column]):
+            print("\rFilling column: {}".format(target_column), end="")
+            x_train, y_train, x_test = split_data_for_knn(data, target_column, coordinate_cols)
+            # get nearest neighbors
+            distances, predictions = get_k_nearest_neighbor_values(x_train, y_train, x_test, K=K)
+            # get aggregated value according to 'fill_method'
+            values = func(predictions, distances, distance_factor=distance_factor)
+            # impute the found values
+            data.loc[x_test.index, target_column] = values
+        else:
+            print("\rSkipping {}, because there are no missing values.".format(target_column))
+    print("\rColumns filled")
+
+    return data.reset_index(drop=False)
+
+
+def impute_missing_values(data, loc_column="C28992R100", time_column="YEAR"):
+    """ Impute missing values in the merged CBS Grid data. """
+    data = insert_missing_time_location_combinations(data, loc_column=loc_column, time_column=time_column)
+    data = fill_missing_facility_values(data, loc_column=loc_column, time_column=time_column)
+    data = fill_missing_housing_values(data, loc_column=loc_column, time_column=time_column)
+    data = fill_missing_inhabitant_values(data, loc_column=loc_column, time_column=time_column)
+    return data
+
+
+def insert_missing_time_location_combinations(data, loc_column="C28992R100", time_column="YEAR"):
+    """ Add missing combinations of time and location by reindexing on their uniqueu values. """
+    locations = data[loc_column].unique()
+    years = data[time_column].unique()
+    old_shape = data.shape
+    data.set_index([loc_column, time_column], inplace=True)
+    data = data.reindex([x for x in product(locations, years)], fill_value=np.nan, copy=False).reset_index()
+    print("Dataset size increased from {} to {} rows.".format(old_shape[0], data.shape[0]))
+    return data
