@@ -551,18 +551,10 @@ def confidential_to_value(data, secret_values, value=np.nan, columns=None):
 def forward_backward_fill_per_location(data, loc_column="C28992R100", sort_column="YEAR"):
     """ Perform forward and backward fill (in that order) per location over the time periods. """
     print("Forward and backward filling per location..")
-    result = pd.concat(
-                [data.pivot_table(columns=loc_column, index=sort_column, values=col, dropna=False)
-                     .fillna(method="ffill")
-                     .fillna(method='bfill')
-                     .stack()
-                     .reset_index(drop=False)
-                     .rename(columns={0: col})
-                 for i, col in enumerate(data.columns) if col not in [loc_column, sort_column]],
-                axis=1)
-    return pd.concat([result.iloc[:, [0, 1]],
-                      result.loc[:, [col for col in data.columns if col not in [loc_column, sort_column]]]],
-                     axis=1)
+    filled_data = (data.groupby(loc_column)
+                       .apply(lambda x: forward_and_backward_fill(x, sort_by=sort_column))
+                       .reset_index(drop=True))
+    return filled_data
 
 
 def split_data_for_knn(data, y_col, features):
