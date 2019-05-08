@@ -7,6 +7,7 @@ import geopandas as gpd
 from sklearn.neighbors import NearestNeighbors
 from itertools import product
 
+
 def load_pkl(file_path):
     return pickle.load(open(file_path, "rb"))
 
@@ -80,6 +81,7 @@ def filter_grids(datasets, min_east, max_east, min_north, max_north):
                     (grid["x_coord_square_origin"] < max_east) &
                     (grid["y_coord_square_origin"] >= min_north) &
                     (grid["y_coord_square_origin"] < max_north)].copy()
+
         # drop columns again
         grid.drop(["x_coord_square_origin", "y_coord_square_origin"], axis=1, inplace=True)
 
@@ -94,8 +96,21 @@ def add_location_coordinates(grid_data, loc_column="C28992R100", x_column_name="
     return grid_data
 
 
-def construct_location_id(x_coords, y_coords):
-    return "E" + np.array(x_coords/100, dtype=str) + "N" + np.array(y_coords/100, dtype=str)
+def construct_location_ids(x_coords, y_coords):
+    """Construct the 'C28992R100' code from x and y coordinates.
+
+    Works both on a single instance as well as on vectors.
+
+    Parameters
+    ----------
+    x_coords, y_coords: int, float, or array
+        The x,y coordinates to convert. X and Y are assumed to be of the same length if they are
+        arrays. Also, the pairs of coordinates are assumed to be in matching positions (i.e.,
+        x_coords[i] belongs to y_coords[i] for all i).
+    """
+    x_coords = pd.Series(x_coords / 100).apply(np.floor).apply(int)
+    y_coords = pd.Series(y_coords / 100).apply(np.floor).apply(int)
+    return "E" + x_coords.astype(str).str.zfill(4) + "N" + y_coords.astype(str).str.zfill(4)
 
 
 def split_and_rename_pre_2015_data(grid_data, min_year=2000, max_year=2014):
@@ -456,6 +471,7 @@ def fill_missing_housing_values(data, loc_column="C28992R100", time_column="YEAR
     print("Filling missing values in housing data.")
     housing_columns = get_housing_columns(data)
     mean_columns = ["GEM_HH_GR", "WOZWONING", "G_ELEK_WON", "G_GAS_WON"]
+    other_cols = [col for col in housing_columns if col not in mean_columns]
     housing_data = data[[loc_column, time_column] + housing_columns]
 
     # 1. confidential values to NaNs for specific columns
@@ -463,8 +479,7 @@ def fill_missing_housing_values(data, loc_column="C28992R100", time_column="YEAR
                                          columns=mean_columns)
 
     # 2. confidential values to zero for the others
-    other_cols = list(set(housing_data.columns) - set(mean_columns))
-    housing_data = confidential_to_value(housing_data, [-99997, -99997.0], value=np.nan,
+    housing_data = confidential_to_value(housing_data, [-99997, -99997.0], value=0,
                                          columns=other_cols)
 
     # 3. forward and backward fill per location
@@ -473,7 +488,7 @@ def fill_missing_housing_values(data, loc_column="C28992R100", time_column="YEAR
     # 4. fill specific columns with median values
     for col in mean_columns:
         median_of_col = housing_data[col].median()
-        housing_data[col] = housing_data.fillna(median_of_col)
+        housing_data[col] = housing_data[col].fillna(median_of_col)
 
     # 5. fill missing with zero for the rest
     housing_data.fillna(0, inplace=True)
@@ -527,7 +542,7 @@ def fill_missing_inhabitant_values(data, loc_column="C28992R100", time_column="Y
 def confidential_to_value(data, secret_values, value=np.nan, columns=None):
     """ Replace values indicating the real value is confidential with another value. """
     if columns is not None:
-        data[columns] = data[columns].replace(to_replace=secret_values, value=value)
+        data.loc[:, columns] = data.loc[:, columns].replace(to_replace=secret_values, value=value)
         return data
     else:
         return data.replace(to_replace=secret_values, value=np.nan)
@@ -535,11 +550,19 @@ def confidential_to_value(data, secret_values, value=np.nan, columns=None):
 
 def forward_backward_fill_per_location(data, loc_column="C28992R100", sort_column="YEAR"):
     """ Perform forward and backward fill (in that order) per location over the time periods. """
-    print("Grouping by location and filling..")
-    filled_data = (data.groupby(loc_column)
-                       .apply(lambda x: forward_and_backward_fill(x, sort_by=sort_column))
-                       .reset_index(drop=True))
-    return filled_data
+    print("Forward and backward filling per location..")
+    result = pd.concat(
+                [data.pivot_table(columns=loc_column, index=sort_column, values=col, dropna=False)
+                     .fillna(method="ffill")
+                     .fillna(method='bfill')
+                     .stack()
+                     .reset_index(drop=False)
+                     .rename(columns={0: col})
+                 for i, col in enumerate(data.columns) if col not in [loc_column, sort_column]],
+                axis=1)
+    return pd.concat([result.iloc[:, [0, 1]],
+                      result.loc[:, [col for col in data.columns if col not in [loc_column, sort_column]]]],
+                     axis=1)
 
 
 def split_data_for_knn(data, y_col, features):
@@ -686,7 +709,7 @@ def fill_missing_values_with_knn(data, columns_to_fill, K=8, coordinate_cols=["x
 
 
 def impute_missing_values(data, loc_column="C28992R100", time_column="YEAR"):
-    """ Impute missing values in the merged CBS Grid data. """
+    """ Impute mergedissing values in the merged CBS Grid data. """
     data = insert_missing_time_location_combinations(data, loc_column=loc_column, time_column=time_column)
     data = fill_missing_facility_values(data, loc_column=loc_column, time_column=time_column)
     data = fill_missing_housing_values(data, loc_column=loc_column, time_column=time_column)
