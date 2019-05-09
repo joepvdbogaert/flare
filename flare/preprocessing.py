@@ -754,7 +754,8 @@ def add_grid_id_column(incidents, x_col="st_x", y_col="st_y", new_col="C28992R10
 
 def merge_grid_with_incidents(incidents, grid, square_col="C28992R100", inc_year_col="dim_datum_jaar",
                               grid_year_col="YEAR", type_col="dim_incident_incident_type",
-                              x_coord_col="st_x", y_coord_col="st_y", verbose=False):
+                              x_coord_col="st_x", y_coord_col="st_y", type_filter=["nan", np.nan, "NVT"],
+                              verbose=False):
     """Map incidents to squares of the CBS grid and merge the data accordingly.
 
     Some assumptions are made based on the flare.preprocessing pipeline of the grid data:
@@ -796,8 +797,9 @@ def merge_grid_with_incidents(incidents, grid, square_col="C28992R100", inc_year
     if verbose:
         print("Reindexing to obtain all combinations..")
 
+    types = [typ for typ in incidents[type_col].unique() if typ not in type_filter]
     new_index = pd.MultiIndex.from_tuples(
-        [tup for tup in product(incidents[square_col].unique(), incidents[inc_year_col].unique(), incidents[type_col].unique())],
+        [tup for tup in product(incidents[square_col].unique(), incidents[inc_year_col].unique(), types)],
         names=[square_col, inc_year_col, type_col]
     )
     grouped = grouped.reindex(new_index, fill_value=0)
