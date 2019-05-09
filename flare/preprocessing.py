@@ -718,3 +718,102 @@ def insert_missing_time_location_combinations(data, loc_column="C28992R100", tim
     data = data.reindex([x for x in product(locations, years)], fill_value=np.nan, copy=False).reset_index()
     print("Dataset size increased from {} to {} rows.".format(old_shape[0], data.shape[0]))
     return data
+
+
+def filter_no_location_incidents(incidents, coord_cols=["st_x", "st_y"]):
+    """Filter out incidents that have no usable location information.
+
+    Parameters
+    ----------
+    incidents: pd.DataFrame
+        The incident data.
+    coord_cols: list of length 2, default=["st_x", "st_y"]
+        The columns representing the coordinates.
+    """
+    mask = (incidents[coord_cols[0]] == 0) | (incidents[coord_cols[1]] == 0)
+    num = np.sum(mask)
+    length = len(incidents)
+    data = incidents[~mask]
+    print("Removed {} incidents ({:.3f}%) from data".format(num, num/length*100))
+    return data
+
+
+def add_grid_id_column(incidents, x_col="st_x", y_col="st_y", new_col="C28992R100"):
+    """Add a column to the incident data with the 'C28992R100' grid ID.
+
+    Parameters
+    ----------
+    incidents: pd.DataFrame
+        The incident data.
+    x_col, y_col: str, default='st_x' and 'st_y'
+        The column names of the x and y coordinates.
+    """
+    incidents.loc[:, new_col] = construct_location_ids(incidents["st_x"], incidents["st_y"])
+    return incidents
+
+
+def merge_grid_with_incidents(incidents, grid, square_col="C28992R100", inc_year_col="dim_datum_jaar",
+                              grid_year_col="YEAR", type_col="dim_incident_incident_type",
+                              x_coord_col="st_x", y_coord_col="st_y", verbose=False):
+    """Map incidents to squares of the CBS grid and merge the data accordingly.
+
+    Some assumptions are made based on the flare.preprocessing pipeline of the grid data:
+        - the grid data is filtered to only contain years for which we have all the data
+        - the grid contains all the possible squares in the region (plus possibly more)
+
+    Parameters
+    ----------
+    incidents: pd.DataFrame
+        The incident data.
+    grid: pd.DataFrame
+        The grid data, preprocessed and containing all relevant years of CBS statistics
+        as well as all relevant squares.
+    square_col: str, default="C28992R100"
+        The column with square IDs.
+    inc_year_col: str, default="dim_datum_jaar"
+        The column in the incident data with the year.
+    grid_year_col: str, default="YEAR"
+        The column in the grid data with the year.
+    type_col: str, default="dim_incident_incident_type"
+        The column in the incident data with the incident type.
+
+    Returns
+    -------
+    merged_df: pd.DataFrame
+        A DataFrame with both the CBS statistics as well as the number of incidents
+        of each type that happened for each square-year combination.
+    """
+    # drop incidents with no usable location information
+    incidents = filter_no_location_incidents(incidents, coord_cols=[x_coord_col, y_coord_col])
+    # determine the square ID of each incident based on coordinates
+    incidents = add_grid_id_column(incidents, x_col=x_coord_col, y_col=y_coord_col, new_col=square_col)
+    # count incidents of each type per square
+    grouped = (incidents.groupby([square_col, inc_year_col, type_col])
+                        [incidents.columns[0]]
+                        .count())
+    grouped.index.droplevel(type_col)
+    transformed = (grouped.unstack(fill_value=0)
+                          .rename_axis(None, axis=1)
+                          .reset_index())
+
+    # and merge it with the grid data
+    if verbose:
+        print("Transformed incident data has shape: {}".format(transformed.shape))
+        print("grid data has shape: {}".format(grid.shape))
+    merged = transformed.merge(grid, left_on=[square_col, inc_year_col],
+                               right_on=[square_col, grid_year_col], how="left")
+
+    if verbose:
+        print("merged data has shape: {}".format(merged.shape))
+        print("dropping incomplete years (assuming this was done in grid data already)")
+    minyear, maxyear = grid[grid_year_col].min(), grid[grid_year_col].max()
+    merged = merged[(merged[inc_year_col] >= minyear) & (merged[inc_year_col] <= maxyear)]
+
+    if verbose:
+        print("new shape: {}".format(merged.shape))
+        print("dropping irrelevant squares")
+    merged.dropna(subset=list(grid.columns), inplace=True)
+
+    if verbose:
+        print("final shape of merged data: {}".format(merged.shape))
+    return merged
