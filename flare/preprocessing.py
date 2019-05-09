@@ -791,6 +791,17 @@ def merge_grid_with_incidents(incidents, grid, square_col="C28992R100", inc_year
     grouped = (incidents.groupby([square_col, inc_year_col, type_col])
                         [incidents.columns[0]]
                         .count())
+
+    # reindex
+    if verbose:
+        print("Reindexing to obtain all combinations..")
+
+    new_index = pd.MultiIndex.from_tuples(
+        [tup for tup in product(incidents[square_col].unique(), incidents[inc_year_col].unique(), incidents[type_col].unique())],
+        names=[square_col, inc_year_col, type_col]
+    )
+    grouped = grouped.reindex(new_index, fill_value=0)
+
     grouped.index.droplevel(type_col)
     transformed = (grouped.unstack(fill_value=0)
                           .rename_axis(None, axis=1)
