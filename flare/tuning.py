@@ -19,9 +19,9 @@ def print_eval_result(params, score, verbose=True):
         print("--\nScore: {}\nParams: {}".format(score, params))
 
 
-def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=250, max_time=6000,
-                          model_type='GP', acquisition_type='EI', acquisition_weight=2,
-                          eps=1e-6, batch_method='local_penalization', batch_size=1,
+def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=250, max_time=None,
+                          model_type='GP', acquisition_type='LCB', acquisition_weight=0.2,
+                          eps=1e-6, batch_method='local_penalization', batch_size=1, maximize=False,
                           eval_func=cross_validate_by_year, eval_params=None, verbose=True,
                           persist=True, write_to=TUNING_OUTPUT_DEFAULT):
     """Automatically configures hyperparameters of ML algorithms. Suitable for reasonably
@@ -138,7 +138,10 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
         results["params"].append(param_dict)
         print_eval_result(param_dict, score, verbose=verbose)
         # only return score to optimizer
-        return score
+        if maximize:
+            return -score
+        else:
+            return score
 
     # scores are added to these lists in the optimization function f
     results = {"params": [], "scores": []}
