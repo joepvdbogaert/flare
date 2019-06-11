@@ -2,18 +2,66 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
-import geopandas as gpd
+try:
+    import geopandas as gpd
+except ImportError:
+    print("geopandas not installed. Some functions from flare.preprocessing might not work.")
 
 from sklearn.neighbors import NearestNeighbors
 from itertools import product
+
+
+ALL_TYPES = [
+    'Afhijsen spoed', 'Assistentie Ambulance', 'Assistentie Politie',
+    'Beknelling / bevrijding', 'Binnenbrand', 'Brandbare gassen',
+    'Brandbare vloeistoffen', 'Brandgerucht / nacontrole',
+    'Buiten dienststelling', 'Buitenbrand', 'Buitensluiting',
+    'Dier te water', 'Herbezetting', 'Hulpverlening Dieren',
+    'Hulpverlening algemeen', 'Hulpverlening algemeen Dieren',
+    'Hulpverlening water algemeen', 'Interregionale bijstand',
+    'Letsel eigen personeel', 'Liftopsluiting',
+    'Meten / overlast / verontreiniging', 'OMS / automatische melding',
+    'Overige gevaarlijke stoffen', 'Persoon te water', 'Reanimeren',
+    'Regionale bijstand', 'Storm en Waterschade', 'Voertuig te water'
+]
+
+
+ALL_CBS_FEATURES = [
+    'AANTAL_HH', 'AFS_APOTH', 'AFS_ATTRAC', 'AFS_BIBLIO',
+    'AFS_BIOS', 'AFS_BRANDW', 'AFS_BSO', 'AFS_CAFE', 'AFS_CAFTAR',
+    'AFS_DAGLMD', 'AFS_HAPRAK', 'AFS_HOTEL', 'AFS_KDV', 'AFS_MUS',
+    'AFS_ONDBAS', 'AFS_ONDHV', 'AFS_ONDVMB', 'AFS_ONDVRT', 'AFS_OPRIT',
+    'AFS_PODIUM', 'AFS_POP', 'AFS_RESTAU', 'AFS_SAUNA', 'AFS_SUPERM',
+    'AFS_TREINS', 'AFS_TRNOVS', 'AFS_WARENH', 'AFS_ZIEK_E',
+    'AFS_ZONBNK', 'AFS_ZWEMB', 'AF_IJSBAAN', 'AV10ATTRAC',
+    'AV10ONDVMB', 'AV10ONDVRT', 'AV10PODIUM', 'AV10WARENH',
+    'AV10ZIEK_E', 'AV10ZIEK_I', 'AV10_BIOS', 'AV10_HOTEL', 'AV10_MUS',
+    'AV10_ONDHV', 'AV1_BSO', 'AV1_CAFE', 'AV1_CAFTAR', 'AV1_DAGLMD',
+    'AV1_HAPRAK', 'AV1_KDV', 'AV1_ONDBAS', 'AV1_RESTAU', 'AV1_SUPERM',
+    'AV20ATTRAC', 'AV20PODIUM', 'AV20WARENH', 'AV20ZIEK_E', 'AV20ZIEK_I',
+    'AV20_BIOS', 'AV20_HOTEL', 'AV20_MUS', 'AV3_BSO', 'AV3_CAFE',
+    'AV3_CAFTAR', 'AV3_DAGLMD', 'AV3_HAPRAK', 'AV3_KDV', 'AV3_ONDBAS',
+    'AV3_ONDHV', 'AV3_ONDVMB', 'AV3_ONDVRT', 'AV3_RESTAU', 'AV3_SUPERM',
+    'AV50ATTRAC', 'AV5_BIOS', 'AV5_BSO', 'AV5_CAFE', 'AV5_CAFTAR',
+    'AV5_DAGLMD', 'AV5_HAPRAK', 'AV5_HOTEL', 'AV5_KDV', 'AV5_MUS',
+    'AV5_ONDBAS', 'AV5_ONDHV', 'AV5_ONDVMB', 'AV5_ONDVRT', 'AV5_PODIUM',
+    'AV5_RESTAU', 'AV5_SUPERM', 'AV5_WARENH', 'AV5_ZIEK_E', 'AV5_ZIEK_I',
+    'GEBOORTE', 'GEM_HH_GR', 'G_ELEK_WON', 'G_GAS_WON', 'HH_EENOUD',
+    'HH_TWEEOUD', 'INWONER', 'INW_014', 'INW_1524', 'INW_2544',
+    'INW_4564', 'INW_65PL', 'MAN', 'P_AUTOCHT', 'P_HUURWON', 'P_KOOPWON',
+    'P_NWALLOCH', 'P_WALLOCH', 'TOTHH_EENP', 'TOTHH_MPZK', 'UITKMINAOW',
+    'VROUW', 'WONING', 'WONVOOR45', 'WON_0514', 'WON_1524', 'WON_4564',
+    'WON_6574', 'WON_7584', 'WON_8594', 'WON_9504', 'WON_HCORP',\
+    'WON_LEEGST', 'WON_MRGEZ', 'WOZWONING'
+]
 
 
 def load_pkl(file_path):
     return pickle.load(open(file_path, "rb"))
 
 
-def to_pkl(object, file_path):
-    pickle.dump(object, open(file_path, "wb"), protocol=4)
+def to_pkl(obj, file_path):
+    pickle.dump(obj, open(file_path, "wb"), protocol=4)
 
 
 def load_grid_data(data_dir="../data/", filenames=None):
@@ -830,3 +878,25 @@ def merge_grid_with_incidents(incidents, grid, square_col="C28992R100", inc_year
     if verbose:
         print("final shape of merged data: {}".format(merged.shape))
     return merged
+
+
+def identify_columns(data):
+    """Identify and categorize the columns in the data.
+
+    In particular, find the columns referring to incident type occurrences and those
+    related to CBS demographics features.
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        The data for which to find the relevant columns.
+
+    Returns
+    -------
+    types, features, other: lists
+        Lists of column names.
+    """
+    types = [c for c in data.columns if c in ALL_TYPES]
+    features = [c for c in data.columns if c in ALL_CBS_FEATURES]
+    other = [c for c in data.columns if c not in ALL_CBS_FEATURES + ALL_TYPES]
+    return types, features, other
