@@ -2,6 +2,12 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+from flare.preprocessing import (
+    get_housing_columns,
+    get_inhabitant_columns,
+    get_facility_columns
+)
+
 
 def tanh_scaling(x, alpha=1.0):
     """Apply tanh with min-max scaling.
@@ -138,14 +144,14 @@ def select_and_scale_facility_cols(data, scale_func=log_scaling):
     scaled = data.copy()
 
     # organize columns and select those to keep
-    cols = get_facility_columns(data)
+    facility_cols = get_facility_columns(data)
     av1_cols = [col for col in facility_cols if "AV1_" in col]
     av3_cols = [col for col in facility_cols if "AV3_" in col]
     av5_cols = [col for col in facility_cols if "AV5_" in col]
     keep = av1_cols + av3_cols + av5_cols
 
     # drop other columns
-    to_drop = list(set(cols) - set(keep))
+    to_drop = list(set(facility_cols) - set(keep))
     scaled = scaled.drop(to_drop, axis=1)
 
     # scale
@@ -230,6 +236,7 @@ def scale_housing_cols(data, scale_func=log_scaling):
     scaled_data: pd.DataFrame
         The data where the housing columns are scaled.
     """
+    housing_cols = get_housing_columns(data)
     mean_scaling_cols = ["G_ELEK_WON", "G_GAS_WON"]
     perc_cols = [col for col in housing_cols if col[:2] == "P_"]
     divide_by_houses = ["WON_HCORP", "WON_MRGEZ", "WON_LEEGST", "WONVOOR45"]
@@ -275,7 +282,7 @@ def scale_demographics_features(data, scale_func=log_scaling):
     can be found in the three called functions: `flare.scaling.scale_housing_cols`,
     `flare.scaling.scale_inhabitant_cols`, and `flare.scaling.select_and_scale_facility_cols`.
     """
-    df_scaled = scale_housing_cols(df, scale_func=log_scaling)
+    df_scaled = scale_housing_cols(data, scale_func=log_scaling)
     df_scaled = scale_inhabitant_cols(df_scaled, scale_func=log_scaling)
     df_scaled = select_and_scale_facility_cols(df_scaled, scale_func=log_scaling)
     return df_scaled
