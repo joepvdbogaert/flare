@@ -70,7 +70,7 @@ def evaluate_model(model, x, y, scoring, score_on_proba=False):
 
 def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, folds=4,
                            year_col="YEAR", scoring=mean_squared_error, return_all=False,
-                           score_on_proba=False, verbose=True):
+                           negate_score=False, score_on_proba=False, verbose=True):
     """Cross validate using different years as validation and training sets.
 
     Parameters
@@ -117,6 +117,8 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
         if verbose:
             print("Fold {}. train score: {}, val score: {}".format(i + 1, train_scores[i], val_scores[i]))
 
+    if negate_score:
+        val_scores = [-x for x in val_scores]
     if return_all:
         return val_scores
     else:
