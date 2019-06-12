@@ -26,6 +26,13 @@ ALL_TYPES = [
 ]
 
 
+IGNORE_TYPES = [
+    'Brandbare gassen', 'Brandbare vloeistoffen', 'Buiten dienststelling',
+    'Herbezetting', 'Interregionale bijstand', 'Letsel eigen personeel',
+    'Overige gevaarlijke stoffen', 'Regionale bijstand'
+]
+
+
 ALL_CBS_FEATURES = [
     'AANTAL_HH', 'AFS_APOTH', 'AFS_ATTRAC', 'AFS_BIBLIO',
     'AFS_BIOS', 'AFS_BRANDW', 'AFS_BSO', 'AFS_CAFE', 'AFS_CAFTAR',
