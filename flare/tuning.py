@@ -23,7 +23,7 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
                           model_type='GP', acquisition_type='LCB', acquisition_weight=0.2,
                           eps=1e-6, batch_method='local_penalization', batch_size=1, maximize=False,
                           eval_func=cross_validate_by_year, eval_params=None, verbose=True,
-                          persist=True, write_to=TUNING_OUTPUT_DEFAULT):
+                          save=True, write_to=TUNING_OUTPUT_DEFAULT):
     """Automatically configures hyperparameters of ML algorithms. Suitable for reasonably
     small sets of params.
 
@@ -77,10 +77,10 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
         The number of parallel optimizations to run. If None, uses batch_size = number of cores.
     verbose: bool
         Whether or not progress messages will be printed (prints if True).
-    persist: bool
+    save: bool
         If set to true, will write tuning results to a pickle file at the `write_to` path.
     write_to: str
-        If persist=True, this defines the filepath where results are stored.
+        If save=True, this defines the filepath where results are stored.
 
     Returns
     -------
@@ -172,7 +172,7 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
         print("KeyboardInterrupt: stopping optimization and returning results.")
 
     # report results
-    if persist:
+    if save:
         pickle.dump(results, open(write_to, "wb"))
 
     best = np.argmax(results["scores"])
