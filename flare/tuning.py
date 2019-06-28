@@ -81,6 +81,8 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
         If set to true, will write tuning results to a pickle file at the `write_to` path.
     write_to: str
         If save=True, this defines the filepath where results are stored.
+    *args, **kwargs: any
+        Parameters passed to `GPyOpt.methods.BayesianOptimization` upon initialization.
 
     Returns
     -------
@@ -94,15 +96,17 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
     print("Using Bayesian Optimization to tune {} in {} iterations and {} seconds."
           .format(predictor_cls, max_iter, max_time))
 
-    use_log_scale = []
+    use_log2_scale, use_log10_scale = [], []
     for p in params:
         try:
-            if p["log"]:
-                use_log_scale.append(p["name"])
+            if p["log"] == 2:
+                use_log2_scale.append(p["name"])
+            elif p["log"] == 10:
+                use_log10_scale.append(p["name"])
         except KeyError:
             pass
 
-    print("Using log2-scale for parameters {}".format(use_log_scale))
+    print("Using log2-scale for parameters {} and log10-scale for {}".format(use_log2_scale, use_log10_scale))
 
     def create_mapping(p_arr):
         """Changes the 2d np.array from GPyOpt to a dictionary.
@@ -123,8 +127,10 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
         mapping = dict()
         for i in range(len(params)):
             value = int(p_arr[0, i]) if params[i]["type"] == "discrete" else p_arr[0, i]
-            if params[i]["name"] in use_log_scale:
+            if params[i]["name"] in use_log2_scale:
                 value = 2**value
+            elif params[i]["name"] in use_log10_scale:
+                value = 10**value
             mapping[params[i]["name"]] = value
 
         return mapping
@@ -162,7 +168,7 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
     opt = BayesianOptimization(
         f, domain=params, model_type=model_type, acquisition_type=acquisition_type,
         normalize_Y=False, acquisition_weight=acquisition_weight, num_cores=num_cores,
-        batch_size=batch_size
+        batch_size=batch_size, *args, **kwargs
     )
 
     # run optimization
@@ -179,3 +185,179 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
     best_params, best_score = results["params"][best], results["scores"][best]
 
     return best_params, best_score
+
+
+def process_tune_results(tune_dict, ignore_params=["n_jobs"], new_score_col="AUC"):
+    """Process tuning results stored in a dictionary and return them in a DataFrame.
+
+    Parameters
+    ----------
+    tune_dict: dict
+        Tuning results. Output of `bayesian_optimization` or stored as a pickle.
+    ignore_params: list-like, default=["n_jobs"]
+        Which parameters not to include in the results. Useful when a parameter was
+        passed with only one possible value.
+    new_score_col: str, default="AUC"
+        What name to give the column referring to the evaluation/tuning score.
+    """
+    params = tune_dict["params"]
+    param_names = [name for name in params[0].keys() if name not in ignore_params]
+    param_dict = {name: [] for name in param_names}
+    for observation in params:
+        for name in param_names:
+            param_dict[name].append(observation[name])
+
+    param_dict[new_score_col] = tune_dict["scores"]
+    df = pd.DataFrame(param_dict)
+    return df
+
+
+def plot_score_vs_parameter_values(data, score_col="AUC", log2_scale_params=None,
+                                   log10_scale_params=None, size_by_score=False, **kwargs):
+    """Plot the scores for different parameter values individually per parameter.
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        Output of `process_tune_results`.
+    log2_scale_params: list-like, default=None
+        Parameter names to scale back to log2-scale, which may improve readability of the plots.
+    log10_scale_params: list-like, default=None
+        Parameter names to scale back to log10-scale, which may improve readability of the plots.
+    size_by_score: bool, default=False
+        Whether to let dot-size depend on the score.
+    **kwargs: key-value pairs
+        Parameters passed to `plot_param_scatter`.
+
+    Returns
+    -------
+    fig: the figure.
+    """
+    data = data.copy()
+    # find names and number of parameters
+    param_names = [col for col in data.columns if col != score_col]
+
+    # adjust log-scale parameters
+    for p in log2_scale_params:
+        if p in param_names:
+            data[p] = np.log2(data[p])
+            data = data.rename(columns={p: "{} (log2 scale)".format(p)})
+
+    for p in log10_scale_params:
+        if p in param_names:
+            data[p] = np.log10(data[p])
+            data = data.rename(columns={p: "{} (log10 scale)".format(p)})
+
+    param_names = [col for col in data.columns if col != score_col]
+
+    return plot_param_scatter(data, score_col=score_col, size_by_score=size_by_score, **kwargs)
+
+
+def plot_param_scatter(data, score_col="AUC", size_by_score=False, **kwargs):
+    """Plot multiple scatterplots of the score vs each of the parameters.
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        Parameter values and scores, output of `process_tune_results`.
+    score_col: str, default="AUC"
+        Column referring to the score.
+    size_by_score: bool, default=False
+        Whether to let dot-size depend on the score.
+    **kwargs: key-value pairs
+        Parameters passed to `sns.scatterplot`.
+
+    Returns
+    -------
+    fig: the figure.
+    """
+
+    def bubble_plot(x, y, size, **kwds):
+        ax = sns.scatterplot(x=x, y=y, size=size, **kwds)
+        ax.set_xlabel("")
+        return ax
+
+    data = data.reset_index(drop=True)
+    long = data.stack().reset_index()
+    long.columns = ["step", "parameter", "value"]
+
+    scores = long.loc[long["parameter"] == score_col, ["step", "value"]]
+    scores.columns = ["step", score_col]
+    long = long[long["parameter"] != score_col]
+    long = pd.merge(long, scores, how="left", on="step")
+    long["dummy"] = long["parameter"]
+
+    # plot
+    sns.set()
+    g = sns.FacetGrid(long, col="parameter", height=3.5, aspect=0.9, sharex=False, sharey=False)
+    if not size_by_score:
+        g.map(sns.scatterplot, "value", score_col, **kwargs)
+    else:
+        g.map(bubble_plot, "value", score_col, score_col, sizes=(10, 1000), alpha=.8, **kwargs)
+
+    g.set_titles("{col_name}")
+    for ax in g.axes[0]:
+        ax.set_xlabel(ax.get_xlabel(), size=LABEL_SIZE)
+        ax.set_ylabel(ax.get_ylabel(), size=LABEL_SIZE)
+        ax.set_title(ax.get_title(), size=LABEL_SIZE)
+
+    g.fig.suptitle("{} scores vs parameter values".format(score_col), weight="bold", size=TITLE_SIZE)
+    g.fig.tight_layout()
+    g.fig.subplots_adjust(top=0.8)
+    return g.fig
+
+
+def plot_convergence(data, score_col="AUC", maximize=True):
+    """Plot the convergence of the Bayesian Optimization procedure.
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        The tuning results, output of `process_tune_results`.
+    score_col: str, default="AUC"
+        Column referring to the score.
+    maximize: bool, default=True
+        Whether the best score is the highest (True) or lowest (False).
+
+    Returns
+    -------
+    fig: matplotlib.pyplot.Figure
+        The plot showing the convergence and best score at each step of tuning.
+    """
+    data = data.copy()
+    data = data.reset_index(drop=True)
+    if maximize:
+        current_best = data[score_col].min()
+        data["best"] = current_best
+        scores = data[score_col].values
+        for i in range(len(data)):
+            if scores[i] > current_best:
+                current_best = scores[i]
+            data["best"].iloc[i] = current_best
+    else:
+        current_best = data[score_col].max()
+        data["best"] = current_best
+        scores = data[score_col].values
+        for i in range(len(data)):
+            if scores[i] < current_best:
+                current_best = scores[i]
+            data["best"].iloc[i] = current_best
+
+    # finalize data
+    data.index.names = ["step"]
+    data = data.reset_index()
+
+    # plot
+    sns.set()
+    fig, ax = plt.subplots(figsize=(5, 5))
+
+    # ax = sns.scatterplot(x="step", y="AUC", data=data, ax=ax, s=100)
+    ax = sns.lineplot(x="step", y="best", data=data, ax=ax, linewidth=3, color="red")
+    ax = sns.lineplot(x="step", y="AUC", data=data, ax=ax, markersize=10, markers=True, marker="o")
+    ax.lines[1].set_linestyle(":")
+    ax.lines[0].set_linestyle(":")
+    fig.suptitle("Convergence plot", weight="bold", size=TITLE_SIZE)
+    fig.subplots_adjust(top=0.92)
+    ax.set_xlabel(ax.get_xlabel(), size=LABEL_SIZE)
+    ax.set_ylabel(ax.get_ylabel(), size=LABEL_SIZE)
+    return fig
