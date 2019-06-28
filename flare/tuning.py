@@ -181,7 +181,11 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
     if save:
         pickle.dump(results, open(write_to, "wb"))
 
-    best = np.argmax(results["scores"])
+    if maximize:
+        best = np.argmax(results["scores"])
+    else:
+        best = np.argmin(results["scores"])
+
     best_params, best_score = results["params"][best], results["scores"][best]
 
     return best_params, best_score
