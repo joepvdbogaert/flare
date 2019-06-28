@@ -23,7 +23,7 @@ def bayesian_optimization(predictor_cls, data, x_cols, y_col, params, max_iter=2
                           model_type='GP', acquisition_type='LCB', acquisition_weight=0.2,
                           eps=1e-6, batch_method='local_penalization', batch_size=1, maximize=False,
                           eval_func=cross_validate_by_year, eval_params=None, verbose=True,
-                          save=True, write_to=TUNING_OUTPUT_DEFAULT):
+                          save=True, write_to=TUNING_OUTPUT_DEFAULT, *args, **kwargs):
     """Automatically configures hyperparameters of ML algorithms. Suitable for reasonably
     small sets of params.
 
