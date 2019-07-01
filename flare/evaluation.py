@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, confusion_matrix
 
 
 def train_test_split_by_year(data, years_test=2, year_col="YEAR"):
