@@ -156,10 +156,12 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
 
 # function copied from sklearn examples
 def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
-                          cmap=plt.cm.Blues):
+                          cmap=plt.cm.Blues, figsize=(8, 8)):
     """This function prints and plots the confusion matrix.
     Normalization can be applied by setting `normalize=True`.
     """
+    sns.set(font_scale=1.2)
+
     if not title:
         if normalize:
             title = 'Normalized confusion matrix'
@@ -169,21 +171,21 @@ def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
     # Compute confusion matrix
     cm = confusion_matrix(y_true, y_pred)
     # Only use the labels that appear in the data
-    classes = classes[unique_labels(y_true, y_pred)]
     if normalize:
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=figsize)
     im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
-    ax.figure.colorbar(im, ax=ax)
+    ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
     # We want to show all ticks...
     ax.set(xticks=np.arange(cm.shape[1]),
            yticks=np.arange(cm.shape[0]),
            # ... and label them with the respective list entries
            xticklabels=classes, yticklabels=classes,
-           title=title,
            ylabel='True label',
            xlabel='Predicted label')
+    ax.set_title(title, weight="bold", size=18)
 
     # Rotate the tick labels and set their alignment.
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
