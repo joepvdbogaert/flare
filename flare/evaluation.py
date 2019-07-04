@@ -99,15 +99,17 @@ def evaluate_model(model, x, y, scoring, score_on_proba=False):
     score = scoring(y, y_hat)
     return score
 
+
 def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, folds=4,
                            year_col="YEAR", scoring=mean_squared_error, return_all=False,
-                           score_on_proba=False, verbose=True):
+                           score_on_proba=False, verbose=True, pipe=False):
     """Cross validate using different years as validation and training sets.
 
     Parameters
     ----------
-    model_cls: Python class
+    model_cls: Python class or sklearn.pipeline.Pipeline
         The predictor class to use. Must implement the `.fit` and `.evaluate` methods.
+        If model_cls is a Pipeline, make sure to set pipe=True.
     data: pd.DataFrame
         The data to train and validate on.
     x_cols: list(str)
@@ -118,6 +120,9 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
         Parameters to pass to the model class upon initialization.
     folds: int, default=4
         The number of folds to use in cross validation.
+    pipe: bool, default=False
+        Set to true if model_cls is a pipeline instead of an uninitialized model. Note
+        that model_params must be named accordingly (like: 'stepname__param').
 
     Returns
     -------
@@ -139,7 +144,11 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
         val_y = val[y_col]
 
         # train
-        model = model_cls(**model_params)
+        if pipe:
+            model = model_cls.set_params(**model_params)
+        else:
+            model = model_cls(**model_params)
+
         model.fit(train_x, train_y)
 
         # evaluate on training data
