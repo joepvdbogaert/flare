@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import multiprocessing
 import pickle
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 try:
     from GPyOpt.methods import BayesianOptimization
@@ -12,6 +14,8 @@ from flare.evaluation import cross_validate_by_year
 
 
 TUNING_OUTPUT_DEFAULT = '../results/tuning_output.pkl'
+TITLE_SIZE = 18
+LABEL_SIZE = 14
 
 
 def print_eval_result(params, score, verbose=True):
@@ -217,7 +221,8 @@ def process_tune_results(tune_dict, ignore_params=["n_jobs"], new_score_col="AUC
 
 
 def plot_score_vs_parameter_values(data, score_col="AUC", log2_scale_params=None,
-                                   log10_scale_params=None, size_by_score=False, **kwargs):
+                                   log10_scale_params=None, size_by_score=False, ylim=None,
+                                   **kwargs):
     """Plot the scores for different parameter values individually per parameter.
 
     Parameters
@@ -242,22 +247,25 @@ def plot_score_vs_parameter_values(data, score_col="AUC", log2_scale_params=None
     param_names = [col for col in data.columns if col != score_col]
 
     # adjust log-scale parameters
-    for p in log2_scale_params:
-        if p in param_names:
-            data[p] = np.log2(data[p])
-            data = data.rename(columns={p: "{} (log2 scale)".format(p)})
+    if log2_scale_params is not None:
+        for p in log2_scale_params:
+            if p in param_names:
+                data[p] = np.log2(data[p])
+                data = data.rename(columns={p: "{} (log2 scale)".format(p)})
 
-    for p in log10_scale_params:
-        if p in param_names:
-            data[p] = np.log10(data[p])
-            data = data.rename(columns={p: "{} (log10 scale)".format(p)})
+    if log10_scale_params:
+        for p in log10_scale_params:
+            if p in param_names:
+                data[p] = np.log10(data[p])
+                data = data.rename(columns={p: "{} (log10 scale)".format(p)})
 
     param_names = [col for col in data.columns if col != score_col]
 
-    return plot_param_scatter(data, score_col=score_col, size_by_score=size_by_score, **kwargs)
+    return plot_param_scatter(data, score_col=score_col, size_by_score=size_by_score,
+                              ylim=ylim, **kwargs)
 
 
-def plot_param_scatter(data, score_col="AUC", size_by_score=False, **kwargs):
+def plot_param_scatter(data, score_col="AUC", size_by_score=False, ylim=None, **kwargs):
     """Plot multiple scatterplots of the score vs each of the parameters.
 
     Parameters
@@ -304,6 +312,8 @@ def plot_param_scatter(data, score_col="AUC", size_by_score=False, **kwargs):
         ax.set_xlabel(ax.get_xlabel(), size=LABEL_SIZE)
         ax.set_ylabel(ax.get_ylabel(), size=LABEL_SIZE)
         ax.set_title(ax.get_title(), size=LABEL_SIZE)
+        if ylim is not None:
+            ax.set_ylim(ylim)
 
     g.fig.suptitle("{} scores vs parameter values".format(score_col), weight="bold", size=TITLE_SIZE)
     g.fig.tight_layout()
@@ -311,7 +321,7 @@ def plot_param_scatter(data, score_col="AUC", size_by_score=False, **kwargs):
     return g.fig
 
 
-def plot_convergence(data, score_col="AUC", maximize=True):
+def plot_convergence(data, score_col="AUC", maximize=True, figsize=(8, 5), top=0.9, ylim=None):
     """Plot the convergence of the Bayesian Optimization procedure.
 
     Parameters
@@ -353,15 +363,17 @@ def plot_convergence(data, score_col="AUC", maximize=True):
 
     # plot
     sns.set()
-    fig, ax = plt.subplots(figsize=(5, 5))
+    fig, ax = plt.subplots(figsize=figsize)
 
     # ax = sns.scatterplot(x="step", y="AUC", data=data, ax=ax, s=100)
     ax = sns.lineplot(x="step", y="best", data=data, ax=ax, linewidth=3, color="red")
-    ax = sns.lineplot(x="step", y="AUC", data=data, ax=ax, markersize=10, markers=True, marker="o")
+    ax = sns.lineplot(x="step", y=score_col, data=data, ax=ax, markersize=10, markers=True, marker="o")
     ax.lines[1].set_linestyle(":")
     ax.lines[0].set_linestyle(":")
+    if ylim is not None:
+        ax.set_ylim(ylim)
     fig.suptitle("Convergence plot", weight="bold", size=TITLE_SIZE)
-    fig.subplots_adjust(top=0.92)
+    fig.subplots_adjust(top=top)
     ax.set_xlabel(ax.get_xlabel(), size=LABEL_SIZE)
     ax.set_ylabel(ax.get_ylabel(), size=LABEL_SIZE)
     return fig
