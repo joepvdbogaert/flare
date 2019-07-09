@@ -887,7 +887,7 @@ def merge_grid_with_incidents(incidents, grid, square_col="C28992R100", inc_year
     return merged
 
 
-def identify_columns(data):
+def identify_columns(data, ignore_types=IGNORE_TYPES):
     """Identify and categorize the columns in the data.
 
     In particular, find the columns referring to incident type occurrences and those
@@ -897,13 +897,18 @@ def identify_columns(data):
     ----------
     data: pd.DataFrame
         The data for which to find the relevant columns.
+    ignore_types: list(str)
+        Which incident types to ignore, i.e., not to return. Columns will
+        stay in the data however.
 
     Returns
     -------
     types, features, other: lists
         Lists of column names.
     """
-    types = [c for c in data.columns if c in ALL_TYPES]
+    if ignore_types is None:
+        ignore_types = []
+    types = [c for c in data.columns if c in ALL_TYPES if c not in ignore_types]
     features = [c for c in data.columns if c in ALL_CBS_FEATURES]
     other = [c for c in data.columns if c not in ALL_CBS_FEATURES + ALL_TYPES]
     return types, features, other
