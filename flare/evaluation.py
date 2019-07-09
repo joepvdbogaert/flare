@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 
 import matplotlib.pyplot as plt
+import seaborn as sns
+
 from sklearn.metrics import mean_squared_error, confusion_matrix
 
 
@@ -102,7 +104,8 @@ def evaluate_model(model, x, y, scoring, score_on_proba=False):
 
 def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, folds=4,
                            year_col="YEAR", scoring=mean_squared_error, return_all=False,
-                           score_on_proba=False, verbose=True, pipe=False):
+                           score_on_proba=False, verbose=True, pipe=False,
+                           return_predictions=False):
     """Cross validate using different years as validation and training sets.
 
     Parameters
@@ -123,11 +126,14 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
     pipe: bool, default=False
         Set to true if model_cls is a pipeline instead of an uninitialized model. Note
         that model_params must be named accordingly (like: 'stepname__param').
+    return_predictions: bool, default=False
+        Return the predictions on the validation set of every fold instead of the scores.
 
     Returns
     -------
-    scores: list(float)
-        The errors on the validation data for each fold.
+    scores: list(float) or list(tuple(np.array, np.array, np.array))
+        The errors on the validation data for each fold. Unless return_predictions=True, then
+        a list of tuples is returned like [(val_x_fold_1, val_y_fold_1, val_y_hat_fold_1), ...].
     """
     if model_params is None:
         model_params = {}
@@ -136,6 +142,7 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
 
     train_scores = []
     val_scores = []
+    predictions = []  # only use if return_predictions=True
     for i, (train, val) in enumerate(splitter.split(data)):
         # select features and targets
         train_x = train[x_cols]
@@ -151,13 +158,18 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
 
         model.fit(train_x, train_y)
 
-        # evaluate on training data
-        train_scores.append(evaluate_model(model, train_x, train_y, scoring, score_on_proba=score_on_proba))
-        val_scores.append(evaluate_model(model, val_x, val_y, scoring, score_on_proba=score_on_proba))
-        if verbose:
-            print("Fold {}. train score: {}, val score: {}".format(i + 1, train_scores[i], val_scores[i]))
+        if return_predictions:
+            predictions.append((val_x, val_y, pd.Series(model.predict(val_x), index=val_x.index)))
+        else:
+            # evaluate on validation data and on training data if verbose
+            val_scores.append(evaluate_model(model, val_x, val_y, scoring, score_on_proba=score_on_proba))
+            if verbose:
+                train_scores.append(evaluate_model(model, train_x, train_y, scoring, score_on_proba=score_on_proba))
+                print("Fold {}. train score: {}, val score: {}".format(i + 1, train_scores[i], val_scores[i]))
 
-    if return_all:
+    if return_predictions:
+        return predictions
+    elif return_all:
         return val_scores
     else:
         return np.mean(val_scores)
@@ -165,12 +177,10 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
 
 # function copied from sklearn examples
 def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
-                          cmap=plt.cm.Blues, figsize=(8, 8)):
+                          cmap=plt.cm.Blues, figsize=(8, 8), rotate=False):
     """This function prints and plots the confusion matrix.
     Normalization can be applied by setting `normalize=True`.
     """
-    sns.set(font_scale=1.2)
-
     if not title:
         if normalize:
             title = 'Normalized confusion matrix'
@@ -197,8 +207,9 @@ def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
     ax.set_title(title, weight="bold", size=18)
 
     # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-             rotation_mode="anchor")
+    if rotate:
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+                 rotation_mode="anchor")
 
     # Loop over data dimensions and create text annotations.
     fmt = '.2f' if normalize else 'd'
