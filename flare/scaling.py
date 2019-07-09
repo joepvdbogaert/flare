@@ -241,7 +241,7 @@ def scale_housing_cols(data, scale_func=log_scaling):
     perc_cols = [col for col in housing_cols if col[:2] == "P_"]
     divide_by_houses = ["WON_HCORP", "WON_MRGEZ", "WON_LEEGST", "WONVOOR45"]
     built_years = [col for col in housing_cols if (col[:4] == "WON_") and (col not in divide_by_houses)]
-    divide_by_households = [col for col in housing_cols if "HH_" in col]    
+    divide_by_households = [col for col in housing_cols if "HH_" in col]
     custom_scale_cols = ["WONING", "AANTAL_HH", "WOZWONING"]
 
     assert np.all(np.in1d(housing_cols, mean_scaling_cols + perc_cols + divide_by_houses + divide_by_households + custom_scale_cols + built_years)), "missing: {}".format(
@@ -282,7 +282,7 @@ def scale_demographics_features(data, scale_func=log_scaling):
     can be found in the three called functions: `flare.scaling.scale_housing_cols`,
     `flare.scaling.scale_inhabitant_cols`, and `flare.scaling.select_and_scale_facility_cols`.
     """
-    df_scaled = scale_housing_cols(data, scale_func=log_scaling)
-    df_scaled = scale_inhabitant_cols(df_scaled, scale_func=log_scaling)
-    df_scaled = select_and_scale_facility_cols(df_scaled, scale_func=log_scaling)
+    df_scaled = scale_housing_cols(data, scale_func=scale_func)
+    df_scaled = scale_inhabitant_cols(df_scaled, scale_func=scale_func)
+    df_scaled = select_and_scale_facility_cols(df_scaled, scale_func=scale_func)
     return df_scaled
