@@ -159,7 +159,10 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
         model.fit(train_x, train_y)
 
         if return_predictions:
-            predictions.append((val_x, val_y, pd.Series(model.predict(val_x), index=val_x.index)))
+            if score_on_proba:
+                predictions.append((val_x, val_y, pd.Series(model.predict_proba(val_x), index=val_x.index)))
+            else:
+                predictions.append((val_x, val_y, pd.Series(model.predict(val_x), index=val_x.index)))
         else:
             # evaluate on validation data and on training data if verbose
             val_scores.append(evaluate_model(model, val_x, val_y, scoring, score_on_proba=score_on_proba))
@@ -173,6 +176,50 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
         return val_scores
     else:
         return np.mean(val_scores)
+
+
+def cross_validate_multiple_targets(model_cls, data, feature_cols, target_cols, return_all=False,
+                                    folds=4, verbose=True, return_predictions=False, **kwargs):
+    """Cross validate multiple target columns indepently using the same model.
+
+    Parameters
+    ----------
+    See `flare.evaluation.cross_validate_by_year`.
+
+    Returns
+    -------
+    cv_results: pd.DataFrame
+        The results with scores per incident type (row) and fold (column) if return_all=True,
+        otherwise a single column with the mean score over folds.
+    """
+    if return_predictions:
+        prediction_dict = {}
+        for i, target in enumerate(target_cols):
+            if verbose: print("\n{} (prop 1: {})\n--------------".format(target, np.mean(data[target] == 1)))
+            prediction_dict[target] = cross_validate_by_year(
+                model_cls, data, feature_cols, target,
+                return_all=return_all, folds=folds, verbose=verbose,
+                return_predictions=return_predictions, **kwargs
+            )
+
+        return prediction_dict
+    else:  # return scores instead of predictions
+        num_cols = folds if return_all else 1
+        cv_results = pd.DataFrame(
+            np.empty((len(target_cols), num_cols)),
+            index=target_cols,
+            columns=["fold {}".format(i) for i in np.arange(1, folds + 1)]
+        )
+        for i, target in enumerate(target_cols):
+            if verbose: print("\n{} (prop 1: {})\n--------------".format(target, np.mean(data[target] == 1)))
+            scores = cross_validate_by_year(
+                model_cls, data, feature_cols, target,
+                return_all=return_all, folds=folds, verbose=verbose,
+                return_predictions=return_predictions, **kwargs
+            )
+            cv_results.iloc[i, :] = scores
+
+        return cv_results
 
 
 # function copied from sklearn examples
