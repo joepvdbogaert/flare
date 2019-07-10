@@ -79,3 +79,46 @@ def add_incident_count_class_label(data, count_col="incidents", num_classes=6, o
 
     else:
         return data
+
+
+def optimal_threshold(y_tuples, scoring=f1_score, step_size=0.01, maximize=True):
+    """Calculate the optimal decision treshold based on (multiple sets of)
+    probability predictions and true labels.
+
+    Parameters
+    ----------
+    y_tuples: list(tuple(array, array))
+        List of (y_true, y_pred) tuples, where y_true and y_pred are arrays.
+    step_size=float, default=0.01
+        Granularity of the threshold.
+
+    Returns
+    -------
+    threshold: float
+        The mean best decision threshold over the folds.
+    score: float
+        The mean score.
+    """
+    def score_for_threshold(y, y_hat, score_func, threshold):
+        y_rounded = np.where(y_hat >= threshold, 1, 0)
+        return scoring(y, y_rounded)
+
+    def find_best(y, y_hat, step_size, score_func, maximize=True):
+        best_thres, best_score = 0.0, 0.0 if maximize else 1.0
+        for thres in np.arange(0, 1, step_size):
+            score = score_for_threshold(y, y_hat, score_func, thres)
+            if (maximize and (score > best_score)) or (not maximize and (score < best_score)):
+                best_score = score
+                best_thres = thres
+
+        return best_thres, best_score
+
+    thresholds, scores = [], []
+    for y_true, y_pred in y_tuples:
+        t, s = find_best(y_true, y_pred, step_size, scoring, maximize=maximize)
+        thresholds.append(t)
+        scores.append(s)
+
+    mean_threshold = np.mean(thresholds)
+    mean_score = np.mean([score_for_threshold(y, y_hat, scoring, mean_threshold) for y, y_hat in y_tuples])
+    return mean_threshold, mean_score
