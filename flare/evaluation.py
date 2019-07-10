@@ -222,6 +222,65 @@ def cross_validate_multiple_targets(model_cls, data, feature_cols, target_cols, 
         return cv_results
 
 
+def construct_validation_data_from_folds(tuples, y_name="y"):
+    """Reconstruct a DataFrame from cross validation predictions and input data.
+
+    The function `flare.evaluation.cross_validate_by_year`, when ran with return_predictions=True,
+    returns tuples of [(X_fold1, Y_fold1, Y_hat_fold1), ...]. This function joins these arrays into
+    a pandas DataFrame again for further analysis.
+
+    Parameters
+    ----------
+    tuples: list(tuples)
+        Output of `flare.evaluation.cross_validate_by_year`: a list of (x, y, y_hat) tuples for
+        every fold.
+    y_name: str, default='y'
+        The name of the target variable.
+
+    Returns
+    -------
+    df: pd.DataFrame
+        The reconstructed data set, where y, and y_hat are attached to x as columns. The y values have
+        as colummn name y_name + '_true' and y_hat has y_name + '_pred'.
+    """
+    df = pd.concat(
+        [pd.concat(
+            [pd.DataFrame(x), pd.DataFrame({y_name+"_true": y, y_name + "_pred": y_hat}, index=x.index)],
+            axis=1
+        ) for (x, y, y_hat) in tuples],
+        axis=0
+    )
+    return df
+
+
+def construct_val_data_multiple_targets(pred_dict):
+    """Reconstruct a validation dataset from cross validation predictions for multiple targets.
+
+    The function `flare.evaluation.cross_validate_multiple_targets`, when ran with return_predictions=True,
+    returns a dictionary with tuples of [(X_fold1, Y_fold1, Y_hat_fold1), ...] as values. This function joins
+    these arrays into a pandas DataFrame again for further analysis.
+
+    Parameters
+    ----------
+    tuples: dict(list(tuples))
+        Output of `flare.evaluation.cross_validate_multiple_targets`: a dictionary of {'target' -> [(x, y, y_hat), ...]}
+        where the lists have a tuple for every fold.
+
+    Returns
+    -------
+    df: pd.DataFrame
+        The reconstructed data set, where y, and y_hat are attached to x as columns. The y values have
+        as colummn name y_name + '_true' and y_hat has y_name + '_pred'."""
+    keys = list(pred_dict.keys())
+    dfs = [construct_validation_data_from_folds(pred_dict[key], y_name=key)
+           for key in keys]
+    for i in range(len(dfs)):
+        if i > 0:
+            dfs[i] = dfs[i][[keys[i] + "_true", keys[i] + "_pred"]]
+    
+    return pd.concat(dfs, axis=1)
+
+
 # function copied from sklearn examples
 def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
                           cmap=plt.cm.Blues, figsize=(8, 8), rotate=False):
