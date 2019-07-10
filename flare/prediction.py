@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from sklearn.metrics import f1_score
 
 
 class AveragePredictor():
@@ -12,18 +13,21 @@ class AveragePredictor():
         refer to the same instance, but at different time moments, in the train and test set.
     """
 
-    def __init__(self, id_col):
+    def __init__(self, id_col=None):
         self.id_col = id_col
 
     def fit(self, X, Y):
-        Y = pd.Series(Y, name="target")
-        X = pd.DataFrame(X)
+        Y = pd.Series(Y, name="target").copy()
+        X = pd.DataFrame(X).copy()
         self.data = pd.concat([X, Y], axis=1)
         self.averages = self.data.groupby(self.id_col)["target"].mean()
 
     def predict(self, X):
         ids = X[self.id_col].values
-        return self.averages.loc[ids]
+        return self.averages.loc[ids].values
+
+    def predict_proba(self, X):
+        return self.predict(X)
 
 
 class ZeroPredictor():
