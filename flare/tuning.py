@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import multiprocessing
@@ -377,3 +378,47 @@ def plot_convergence(data, score_col="AUC", maximize=True, figsize=(8, 5), top=0
     ax.set_xlabel(ax.get_xlabel(), size=LABEL_SIZE)
     ax.set_ylabel(ax.get_ylabel(), size=LABEL_SIZE)
     return fig
+
+
+def tune_multiple_targets(model_cls, data, xcols, ycols, params, max_iter=100, max_time=None,
+                          model_type='GP', acquisition_type='LCB', acquisition_weight=0.2,
+                          eps=1e-6, batch_method='local_penalization', batch_size=1, maximize=False,
+                          eval_func=cross_validate_by_year, eval_params=None, verbose=True,
+                          save=True, write_dir='../results/', *args, **kwargs):
+    """Perform Bayesian Optimization to tune hyperparameters for multiple targets
+    separately.
+
+    All parameters are identical to that of `flare.tuning.bayesian_optimization` except
+    `ycols`, which should now be a list of columns, rather than a single target column.
+    And `write_to`, which is replaced with `write_dir`, since multiple files will be
+    written there: the results for each target will be written to `write_dir`, followed
+    by `<colname>_tuning.pkl`.
+
+    Parameters
+    ----------
+    see `flare.tuning.bayesian_optimization`.
+
+    Returns
+    -------
+    best: dict
+        Target columns as keys and dictionary like
+        {'params' -> best_param_dict, 'score' -> best_score} as values.
+    """
+    def clean(string):
+        for c in "/., '\\":
+            string = string.replace(c, "")
+        return string
+
+    best_results = {}
+    for ycol in ycols:
+        write_to = os.path.join(write_dir, clean(ycol) + "_tuning.pkl")
+        best_params, best_score = bayesian_optimization(
+            model_cls, data, xcols, ycol, params, *args, max_iter=max_iter, max_time=max_time,
+            model_type=model_type, acquisition_type=acquisition_type, acquisition_weight=acquisition_weight,
+            eps=eps, batch_method=batch_method, batch_size=batch_size, maximize=maximize,
+            eval_func=eval_func, eval_params=eval_params, verbose=verbose, save=save, write_to=write_to,
+            **kwargs
+        )
+        best_results[ycol] = {'params': best_params, 'score': best_score}
+
+    return best_results
