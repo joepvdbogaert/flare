@@ -85,6 +85,33 @@ def add_incident_count_class_label(data, count_col="incidents", num_classes=6, o
         return data
 
 
+def add_binary_indicator_per_type(data, cols, prefix="has_"):
+    """Add binary variables for each column, indicating whether the column is bigger
+    than zero (1) or not (0).
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        The data.
+    cols: list(str)
+        The columns for which to create an indicator.
+    prefix: str
+        What to put in front of the original column name to obtain a new column name. Set
+        to '' (empty string) to store the result in the original column.
+
+    Returns
+    -------
+    data: pd.DataFrame
+        The data with added columns.
+    binary_cols: list(str)
+        The column names of the new columns.
+    """
+    binary_cols = ["{}{}".format(prefix, col) for col in cols]
+    for i, col in enumerate(cols):
+        data[binary_cols[i]] = np.array(data[col] > 0, dtype=np.int)
+    return data, binary_cols
+
+
 def score_for_threshold(y, y_hat, score_func, threshold):
     """Calculate the score on prediction-probabilities given a decision threshold.
 
@@ -104,7 +131,7 @@ def score_for_threshold(y, y_hat, score_func, threshold):
         The score.
     """
     y_rounded = np.where(y_hat >= threshold, 1, 0)
-    return scoring(y, y_rounded)
+    return score_func(y, y_rounded)
 
 
 def find_best_threshold(y, y_hat, step_size, score_func, maximize=True):
@@ -175,3 +202,48 @@ def best_threshold_from_folds(y_tuples, scoring=f1_score, step_size=0.01, maximi
     mean_threshold = np.mean(thresholds)
     mean_score = np.mean([score_for_threshold(y, y_hat, scoring, mean_threshold) for y, y_hat in y_tuples])
     return mean_threshold, mean_score
+
+
+def best_threshold_multiple_targets(data, cols, y_suff='_true', yhat_suff='_pred',
+                                    step_size=0.01, score_func=f1_score, maximize=True):
+    """Find the best thresholds for multiple target columns.
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        The data with validation predictions and true labels for all columns.
+    cols: list(str)
+        The columns that were predicted.
+    y_suff, yhat_suff: str
+        The suffix used to indicate the true and predicted version of the columns
+        respectively.
+    step_size: float
+        The granularity of the threshold to consider. E.g. when step_size=0.01,
+        tries 100 thresholds: 0.0, 0.01, 0.02, ..., 0.99.
+    score_func: callable
+        The function to compute the score with.
+    maximize: bool, default=True
+        Whether to return the threshold that maximizes (True) or minimizes (False)
+        the score.
+
+    Returns
+    -------
+    thresholds: dict
+        The tresholds and corresponding scores in a dictionary like:
+        {'col' -> (threshold, score)}.
+    """
+    thresholds = {
+        c: find_best_threshold(
+            data[c + y_suff].values,
+            data[c + yhat_suff].values,
+            step_size,
+            score_func,
+            maximize=maximize
+        )
+        for c in cols
+    }
+    return thresholds
+
+
+def proba_to_binary(y_pred, threshold):
+    return np.where(y_pred >= threshold, 1, 0)
