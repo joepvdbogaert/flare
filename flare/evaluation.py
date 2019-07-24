@@ -72,6 +72,27 @@ class YearSplitter():
             yield data[data[self.year_col] < threshold], data[data[self.year_col] == threshold]
 
 
+def fix_shape(y_hat, to_pd=True, index=None):
+    """Fix the shape of predictions originating from `predict_proba`."""
+    if len(y_hat.shape) == 3:
+        # received list of predictions, keep proba of 1 for each class
+        y_hat = y_hat[:, :, 1]
+        y_hat = y_hat.transpose()
+    if len(y_hat.shape) > 1:
+        if y_hat.shape[1] == 2:
+            # binary prediction, keep proba of 1
+            y_hat = y_hat[:, 1].flatten()
+
+    # make pd.DataFrame or pd.Series if to_pd is True
+    if to_pd:
+        if len(y_hat.shape) > 1:
+            y_hat = pd.DataFrame(y_hat, index=index)
+        else:
+            y_hat = pd.Series(y_hat, index=index)
+
+    return y_hat
+
+
 def evaluate_model(model, x, y, scoring, score_on_proba=False):
     """Evaluate a trained model and return the score.
 
@@ -88,13 +109,7 @@ def evaluate_model(model, x, y, scoring, score_on_proba=False):
     """
     if score_on_proba:
         y_hat = np.array(model.predict_proba(x))
-        if len(y_hat.shape) == 3:
-            # received list of predictions, keep proba of 1 for each class
-            y_hat = y_hat[:, :, 1]
-            y_hat = y_hat.transpose()
-        if y_hat.shape[1] == 2:
-            # binary prediction, keep proba of 1
-            y_hat = y_hat[:, 1].flatten()
+        y_hat = fix_shape(y_hat, to_pd=False)
     else:
         y_hat = np.array(model.predict(x))
 
@@ -123,6 +138,16 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
         Parameters to pass to the model class upon initialization.
     folds: int, default=4
         The number of folds to use in cross validation.
+    year_col: str, default='YEAR'
+        The column that specifies the year of the data points.
+    scoring: callable, default=sklearn.metrics.mean_squared_error
+        The function to use to calculate the score.
+    return_all: bool, default=False
+        If True, returns a list of scores for each fold. Otherwise returns the mean
+        score over the folds. Ignored if return_predictions=True.
+    score_on_proba: bool, default=False
+        Whether to score on the probabilities or the class predictions. Calls `predict_proba`
+        of the estimator if this is True, so this must be implemented in that case
     pipe: bool, default=False
         Set to true if model_cls is a pipeline instead of an uninitialized model. Note
         that model_params must be named accordingly (like: 'stepname__param').
@@ -160,9 +185,9 @@ def cross_validate_by_year(model_cls, data, x_cols, y_col, model_params=None, fo
 
         if return_predictions:
             if score_on_proba:
-                predictions.append((val_x, val_y, pd.Series(model.predict_proba(val_x), index=val_x.index)))
+                predictions.append((val_x, val_y, fix_shape(model.predict_proba(val_x), to_pd=True, index=val_x.index)))
             else:
-                predictions.append((val_x, val_y, pd.Series(model.predict(val_x), index=val_x.index)))
+                predictions.append((val_x, val_y, fix_shape(model.predict(val_x), to_pd=True, index=val_x.index)))
         else:
             # evaluate on validation data and on training data if verbose
             val_scores.append(evaluate_model(model, val_x, val_y, scoring, score_on_proba=score_on_proba))
@@ -270,60 +295,13 @@ def construct_val_data_multiple_targets(pred_dict):
     -------
     df: pd.DataFrame
         The reconstructed data set, where y, and y_hat are attached to x as columns. The y values have
-        as colummn name y_name + '_true' and y_hat has y_name + '_pred'."""
+        as colummn name y_name + '_true' and y_hat has y_name + '_pred'.
+    """
     keys = list(pred_dict.keys())
     dfs = [construct_validation_data_from_folds(pred_dict[key], y_name=key)
            for key in keys]
     for i in range(len(dfs)):
         if i > 0:
             dfs[i] = dfs[i][[keys[i] + "_true", keys[i] + "_pred"]]
-    
+
     return pd.concat(dfs, axis=1)
-
-
-# function copied from sklearn examples
-def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
-                          cmap=plt.cm.Blues, figsize=(8, 8), rotate=False):
-    """This function prints and plots the confusion matrix.
-    Normalization can be applied by setting `normalize=True`.
-    """
-    if not title:
-        if normalize:
-            title = 'Normalized confusion matrix'
-        else:
-            title = 'Confusion matrix'
-
-    # Compute confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
-    # Only use the labels that appear in the data
-    if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-
-    fig, ax = plt.subplots(figsize=figsize)
-    im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
-    ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-
-    # We want to show all ticks...
-    ax.set(xticks=np.arange(cm.shape[1]),
-           yticks=np.arange(cm.shape[0]),
-           # ... and label them with the respective list entries
-           xticklabels=classes, yticklabels=classes,
-           ylabel='True label',
-           xlabel='Predicted label')
-    ax.set_title(title, weight="bold", size=18)
-
-    # Rotate the tick labels and set their alignment.
-    if rotate:
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-                 rotation_mode="anchor")
-
-    # Loop over data dimensions and create text annotations.
-    fmt = '.2f' if normalize else 'd'
-    thresh = cm.max() / 2.
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            ax.text(j, i, format(cm[i, j], fmt),
-                    ha="center", va="center",
-                    color="white" if cm[i, j] > thresh else "black")
-    fig.tight_layout()
-    return fig
