@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from sklearn.metrics import f1_score, classification_report
+from sklearn.metrics import f1_score, classification_report, confusion_matrix
 
 from flare.prediction import best_threshold_multiple_targets, proba_to_binary
 
@@ -61,7 +61,8 @@ def classification_report_multiple_targets(data, cols, y_suff='_true', yhat_suff
 
 
 # function copied from sklearn examples
-def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
+def plot_confusion_matrix(y_true, y_pred, classes, labels=None,
+                          normalize=False, title=None,
                           cmap=plt.cm.Blues, figsize=(8, 8), rotate=False):
     """This function prints and plots the confusion matrix.
     Normalization can be applied by setting `normalize=True`.
@@ -72,8 +73,11 @@ def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
         else:
             title = 'Confusion matrix'
 
+    if labels is None:
+        labels = classes
+
     # Compute confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
+    cm = confusion_matrix(y_true, y_pred, labels=classes)
     # Only use the labels that appear in the data
     if normalize:
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
@@ -86,7 +90,7 @@ def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title=None,
     ax.set(xticks=np.arange(cm.shape[1]),
            yticks=np.arange(cm.shape[0]),
            # ... and label them with the respective list entries
-           xticklabels=classes, yticklabels=classes,
+           xticklabels=labels, yticklabels=labels,
            ylabel='True label',
            xlabel='Predicted label')
     ax.set_title(title, weight="bold", size=18)
