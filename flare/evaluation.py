@@ -305,3 +305,22 @@ def construct_val_data_multiple_targets(pred_dict):
             dfs[i] = dfs[i][[keys[i] + "_true", keys[i] + "_pred"]]
 
     return pd.concat(dfs, axis=1)
+
+
+def construct_multiclass_val_data_probas(tuples, y_names=[str(x) for x in range(9)] + ['9+']):
+    """Construct validation data when the output of predictions is 2D, such as in the
+    multi-class classification case."""
+    def set_cols(d, suffix='_true'):
+        d.columns = [str(c) + suffix for c in y_names]
+        return d
+
+    # one hot encode true labels
+    tuples = [(x, set_cols(pd.get_dummies(y)), set_cols(yhat, suffix='_proba')) for x, y, yhat in tuples]
+    df = pd.concat(
+        [pd.concat(
+            [x, pd.DataFrame(y, index=x.index), pd.DataFrame(yhat, index=x.index)],
+            axis=1
+        ) for (x, y, yhat) in tuples],
+        axis=0
+    )
+    return df
