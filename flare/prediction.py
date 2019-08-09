@@ -1,6 +1,124 @@
 import numpy as np
 import pandas as pd
+
 from sklearn.metrics import f1_score
+from sklearn.base import clone
+from sklearn.calibration import CalibratedClassifierCV
+
+
+class OrdinalClassifier():
+    """Wrapper class that turns any binary classifier into an Ordinal Classifier
+    as proposed by Frank & Hall (2001).
+
+    For K ordinal classes, the method fits K-1 binary classifiers that predict
+    Pr(Y > y), y=1, ..., K-1. Inference is then performed by selecting
+    Pr(Y = k) = Pr(Y > k - 1) * (1 - Pr(Y > k + 1)), for k=2, ..., K-1. For k=1
+    and k=K, inference is trivial.
+
+    Parameters
+    ----------
+    clf: sklearn classifier object, initialized
+        Must implement the fit, predict, and predict_proba methods.
+    calibration_data: tuple(2D array-like, 1D array-like)
+        Data used to calibrate the confidence scores of individual classifiers. This
+        calibrates the ouputted confidence scores, so that they are more aligned with
+        the actual probability that the instance is of a given class. In other words,
+        it makes this method have some sense.
+
+    Notes
+    -----
+    The original method assumes confidence scores provided by the classifier can be interpreted
+    as probabilities, which is highly doubtful in most cases. Frank and Hall make no notice
+    of this in their paper. The option to calibrate the confidence scores was our idea and is
+    not peer-reviewed or anything.
+    
+    The code is based on a blog post on TowardsDataScience (see references).
+
+    References
+    ----------
+    [Frank and Hall (2001)](https://link.springer.com/content/pdf/10.1007/3-540-44795-4_13.pdf)
+    [Original code and blog post by Muhammad Assagaf](https:
+    //towardsdatascience.com/simple-trick-to-train-an-ordinal-regression-with-any-classifier-6911183d2a3c
+    """
+    def __init__(self, clf, cal_data=None, cal_method='isotonic'):
+        self.clf = clf
+        self.clfs = {}
+        self.cal_data = cal_data
+        if cal_data is not None:
+            self.x_cal, self.y_cal = cal_data
+        if cal_method not in ['isotonic', 'sigmoid']:
+            raise ValueError("cal_method must be one of ['isotonic', 'sigmoid']. Got {}."
+                             .format(cal_method))
+        self.cal_method = cal_method
+
+    def fit(self, X, y):
+        """Fit K-1 binary classifier to the data, where K is the number of unique values
+        in y.
+
+        Parameters
+        ----------
+        X: 2D array-like
+            The input data.
+        y: 1D array-like
+            The ordinal target variable.
+        """
+        self.unique_class = np.sort(np.unique(y))
+        if self.unique_class.shape[0] > 2:
+            for i in range(self.unique_class.shape[0] - 1):
+                # for each k - 1 ordinal value we fit a binary classifier
+                binary_y = (y > self.unique_class[i]).astype(np.uint8)
+                clf = clone(self.clf)
+                clf.fit(X, binary_y)
+                if self.cal_data is not None:
+                    calib_clf = CalibratedClassifierCV(clf, cv='prefit', method=self.cal_method)
+                    binary_y_cal = (self.y_cal > self.unique_class[i]).astype(np.uint8)
+                    calib_clf.fit(self.x_cal, binary_y_cal)
+                    self.clfs[i] = calib_clf
+                else:
+                    self.clfs[i] = clf
+
+    def predict_proba(self, X):
+        """Predict probabilities/confidence scores for each possible target value.
+
+        Parameters
+        ----------
+        X: 2D array-like
+            The input data.
+
+        Returns
+        -------
+        yhat: 2D np.array
+            The predicted probabilities of each class (axis 1) for each instance (axis 0).
+        """
+        clfs_predict = {k: self.clfs[k].predict_proba(X) for k in self.clfs}
+        predicted = []
+        for i, y in enumerate(self.unique_class):
+            if i == 0:
+                # V1 = 1 - Pr(y > V1)
+                predicted.append(1 - clfs_predict[y][:,1])
+            elif y in clfs_predict:
+                # Vi = Pr(y > Vi-1) - Pr(y > Vi)
+                 predicted.append(clfs_predict[y-1][:,1] - clfs_predict[y][:,1])
+            else:
+                # Vk = Pr(y > Vk-1)
+                predicted.append(clfs_predict[y-1][:,1])
+
+        return np.vstack(predicted).T
+
+    def predict(self, X):
+        """Predict the target value for a given input.
+
+        Parameters
+        ----------
+        X: 2D array-like
+            The input data.
+
+        Returns
+        -------
+        yhat: 1D np.array
+            The predicted classes/values.
+        """
+        return np.argmax(self.predict_proba(X), axis=1)
 
 
 class AveragePredictor():
