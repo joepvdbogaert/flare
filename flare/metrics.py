@@ -62,7 +62,7 @@ def classification_report_multiple_targets(data, cols, y_suff='_true', yhat_suff
 
 # function copied from sklearn examples
 def plot_confusion_matrix(y_true, y_pred, classes, labels=None,
-                          normalize=False, title=None,
+                          normalize=False, title=None, title_size=18,
                           cmap=plt.cm.Blues, figsize=(8, 8), rotate=False):
     """This function prints and plots the confusion matrix.
     Normalization can be applied by setting `normalize=True`.
@@ -93,7 +93,7 @@ def plot_confusion_matrix(y_true, y_pred, classes, labels=None,
            xticklabels=labels, yticklabels=labels,
            ylabel='True label',
            xlabel='Predicted label')
-    ax.set_title(title, weight="bold", size=18)
+    ax.set_title(title, weight="bold", size=title_size)
 
     # Rotate the tick labels and set their alignment.
     if rotate:
