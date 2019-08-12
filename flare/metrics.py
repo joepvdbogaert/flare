@@ -110,3 +110,72 @@ def plot_confusion_matrix(y_true, y_pred, classes, labels=None,
                     color="white" if cm[i, j] > thresh else "black")
     fig.tight_layout()
     return fig
+
+
+def _create_tolerance_dict(classes, tol=1):
+    """Create a dictionary with the classes that are within a given distance of each class.
+
+    The rictionary is used in `tolerant_accuracy_score` to determine which predicitons are
+    allowed with a given tolerance.
+
+    Parameters
+    ----------
+    classes: list
+        All possible classes in their natural order.
+    tol: int, default=1
+        The number of levels (positions in `classes` that the prediction may be off.
+
+    Returns
+    tol_dict: dict
+        The tolerance dict with classes as keys and lists of permitted classes as values.
+    """
+    tol_dict = {}
+    for i, c in enumerate(classes):
+        tol_dict[c] = [other_c for j, other_c in enumerate(classes) if abs(j - i) <= tol]
+    return tol_dict
+
+
+def tolerant_accuracy_score(y_true, y_pred, classes, tol=1, by_class=False, balanced=False):
+    """Calculate accuracy for ordinal classes with a given tolerance.
+
+    The tolerance indicates how many levels the predictions may be off. With the example
+    of integer data, a tolerance of 2 for a true class of 4, will treat predictions from
+    2 to 6 as correct.
+
+    Parameters
+    ----------
+    y_true, y_pred: array-like
+        The true and predicted labels respectively. Must be of the same length.
+    classes: list
+        All possible classes in their natural order.
+    tol: int, default=1
+        The number of levels (positions in `classes` that the prediction may be off.
+    by_class: bool, default=False
+        If true, returns dict with the accuracy score per true class.
+    balanced: bool, default=False
+        If true, calculate the score as the mean over the true classes, instead of
+        the mean over instances. Ignored if by_class=True.
+
+    Returns
+    -------
+    score: float or dict
+        The score or dict of scores if by_class=True.
+    """
+    # create dict with permitted predictions per class
+    told = _create_tolerance_dict(classes, tol=tol)
+
+    # calculate correctness per instance
+    y_true = pd.Series(y_true)
+    dfy = pd.DataFrame({'y_true': y_true, 'y_pred': y_pred})
+    dfy['y_tol'] = dfy['y_true'].apply(lambda x: told[x])
+    dfy['within_tolerance'] = dfy[['y_tol', 'y_pred']].apply(lambda x: x['y_pred'] in x['y_tol'], axis=1)
+
+    # return requested score(s)
+    if by_class or balanced:
+        scores = dfy.groupby("y_true")['within_tolerance'].mean().to_dict()
+        if by_class:
+            return scores
+        else:
+            return np.mean(list(scores.values()))
+    else:
+        return dfy['within_tolerance'].mean()
