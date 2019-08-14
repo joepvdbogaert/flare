@@ -135,7 +135,7 @@ def _create_tolerance_dict(classes, tol=1):
     return tol_dict
 
 
-def tolerant_accuracy_score(y_true, y_pred, classes, tol=1, by_class=False, balanced=False):
+def tolerant_accuracy_score(y_true, y_pred, classes=None, tol=1, by_class=False, balanced=False):
     """Calculate accuracy for ordinal classes with a given tolerance.
 
     The tolerance indicates how many levels the predictions may be off. With the example
@@ -161,6 +161,10 @@ def tolerant_accuracy_score(y_true, y_pred, classes, tol=1, by_class=False, bala
     score: float or dict
         The score or dict of scores if by_class=True.
     """
+    if classes is None:
+        classes = np.sort(np.unique(y_true))
+        print("No classes provided. Inferred from data: {}".format(classes))
+
     # create dict with permitted predictions per class
     told = _create_tolerance_dict(classes, tol=tol)
 
@@ -179,3 +183,8 @@ def tolerant_accuracy_score(y_true, y_pred, classes, tol=1, by_class=False, bala
             return np.mean(list(scores.values()))
     else:
         return dfy['within_tolerance'].mean()
+
+
+def balanced_tolerant_accuracy_score(y_true, y_pred, classes=None, tol=1):
+    return tolerant_accuracy_score(y_true, y_pred, classes=classes, tol=tol,
+                                   by_class=False, balanced=True)
