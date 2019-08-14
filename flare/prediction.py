@@ -148,6 +148,33 @@ class AveragePredictor():
         return self.predict(X)
 
 
+class MedianPredictor():
+    """Naive estimator that predicts the median over previous timestamps for a given instance.
+
+    Parameters
+    ----------
+    id_col: str
+        The column in the data that acts as an identifier for an instance. This identifier must
+        refer to the same instance, but at different time moments, in the train and test set.
+    """
+
+    def __init__(self, id_col=None):
+        self.id_col = id_col
+
+    def fit(self, X, Y):
+        Y = pd.Series(Y, name="target").copy()
+        X = pd.DataFrame(X).copy()
+        self.data = pd.concat([X, Y], axis=1)
+        self.medians = self.data.groupby(self.id_col)["target"].median()
+
+    def predict(self, X):
+        ids = X[self.id_col].values
+        return self.medians.loc[ids].values
+
+    def predict_proba(self, X):
+        return self.predict(X)
+
+
 class ZeroPredictor():
 
     def fit(self, *args, **kwargs):
@@ -312,13 +339,13 @@ def best_threshold_from_folds(y_tuples, scoring=f1_score, step_size=0.01, maximi
         The mean score.
     """
     thresholds, scores = [], []
-    for y_true, y_pred in y_tuples:
+    for _, y_true, y_pred in y_tuples:
         t, s = find_best_threshold(y_true, y_pred, step_size, scoring, maximize=maximize)
         thresholds.append(t)
         scores.append(s)
 
     mean_threshold = np.mean(thresholds)
-    mean_score = np.mean([score_for_threshold(y, y_hat, scoring, mean_threshold) for y, y_hat in y_tuples])
+    mean_score = np.mean([score_for_threshold(y, y_hat, scoring, mean_threshold) for _, y, y_hat in y_tuples])
     return mean_threshold, mean_score
 
 
